@@ -9,14 +9,17 @@ name: Monitoraggio traffico provincia di Milano (vector tiles)
 # minuti (resto della giornata) - scartando i tentativi che cadono nello
 # stesso bucket temporale di un'esecuzione gia' fatta.
 #
-# CAMPAGNA A TEMPO, non raccolta continua: pensato per girare 48 ore e poi
-# fermarsi (disabilitare il job su cron-job.org, o cancellare/mettere in
-# pausa questo workflow) - non e' una raccolta indefinita come Progetto3.
-# Con 803 tile e cadenza adattiva, 48h = ~173.448 chiamate (87% della quota
-# mensile TomTom di 200.000, su una chiave dedicata a questo solo progetto,
-# non condivisa con Progetto3-Master-VectorTiles). Cadenza fissa a 5 minuti
-# su tutte le 48h costerebbe 462.528 chiamate (231% della quota): non
-# sostenibile, da qui la cadenza adattiva.
+# CAMPAGNA A TEMPO, non raccolta continua - ma SI FERMA DA SOLA: lo script
+# ha una finestra esplicita (CAMPAGNA_INIZIO/CAMPAGNA_FINE, lunedi' 03/08
+# 00:00 -> mercoledi' 05/08 00:00 ora italiana, 48h) e fuori da quella
+# finestra esce senza fare alcuna chiamata. Il trigger su cron-job.org puo'
+# quindi restare attivo H24 fin da subito (nessun costo prima di lunedi') e
+# non serve disattivarlo alla fine (nessun costo dopo mercoledi'), a
+# differenza di Progetto3. Con 803 tile e cadenza adattiva, 48h = ~173.448
+# chiamate (87% della quota mensile TomTom di 200.000, su una chiave
+# dedicata a questo solo progetto, non condivisa con Progetto3-Master-VectorTiles).
+# Cadenza fissa a 5 minuti su tutte le 48h costerebbe 462.528 chiamate
+# (231% della quota): non sostenibile, da qui la cadenza adattiva.
 #
 # Finestra oraria: nessuna restrizione (00-23 UTC, tutti i giorni della
 # campagna) - a differenza di Progetto3 (7-22 ora italiana), l'obiettivo e'

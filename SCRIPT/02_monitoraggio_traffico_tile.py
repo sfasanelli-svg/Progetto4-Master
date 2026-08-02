@@ -27,7 +27,17 @@ tile invece di 50/63):
    locale italiana corrente, se lasciar passare il tentativo (punta) o
    scartarlo fino al prossimo bucket da 30 minuti (fuori punta).
 
-2. OUTPUT IN PARQUET, PARTIZIONATO PER GIORNO, non un unico CSV in
+2. FINESTRA DI CAMPAGNA ESPLICITA (CAMPAGNA_INIZIO/CAMPAGNA_FINE piu'
+   sotto): parte lunedi' 03/08/2026 00:00 ora italiana, finisce da sola
+   dopo 48 ore (mercoledi' 00:00) - dati piu' verosimili di un lunedi'+
+   martedi' "tipici" invece di un giorno scelto a caso (weekend, ponte).
+   Il trigger esterno (cron-job.org) puo' restare attivo H24 fin da
+   subito: fuori da questa finestra lo script esce senza fare alcuna
+   chiamata, quindi accenderlo in anticipo o dimenticarsi di spegnerlo
+   dopo non costa quota - a differenza di Progetto3, qui la campagna si
+   autolimita.
+
+3. OUTPUT IN PARQUET, PARTIZIONATO PER GIORNO, non un unico CSV in
    append. Motivo: un CSV che cresce all'infinito e viene ri-committato a
    ogni esecuzione, alla scala di questo progetto, arriverebbe a decine o
    centinaia di MB entro pochi giorni - GitHub rifiuta push di file
@@ -39,7 +49,7 @@ tile invece di 50/63):
    CSV, ma riscrivere un giorno di dati resta un'operazione da pochi
    secondi anche a cadenza fitta).
 
-3. ASSEGNAZIONE FALLBACK VETTORIALE (sjoin_nearest), non un ciclo Python
+4. ASSEGNAZIONE FALLBACK VETTORIALE (sjoin_nearest), non un ciclo Python
    sezione per sezione. Con 50 sezioni un ciclo "per ogni sezione senza
    segmenti, calcola la distanza da OGNI segmento scaricato" era
    trascurabile; con centinaia di migliaia di segmenti per esecuzione (803
@@ -59,7 +69,7 @@ Output: traffico_provincia_AAAA-MM-GG.parquet (uno per giorno). Colonne:
 import math
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -98,8 +108,24 @@ INTERVALLO_PUNTA_MINUTI = 5
 INTERVALLO_FUORI_PUNTA_MINUTI = 30
 FUSO_ITALIA = ZoneInfo("Europe/Rome")
 
+# FINESTRA DI CAMPAGNA: inizio fissato a lunedi' (dati piu' verosimili di un
+# giorno feriale "tipico" - lunedi'+martedi' invece di un giorno scelto a
+# caso, che potrebbe cadere di sabato/domenica o a ridosso di un ponte), fine
+# automatica dopo CAMPAGNA_DURATA_ORE. Il trigger esterno (cron-job.org) puo'
+# restare attivo H24 fin da subito: fuori da questa finestra lo script esce
+# immediatamente senza fare alcuna chiamata TomTom (vedi main()), quindi
+# accenderlo in anticipo non consuma quota. Idem al termine delle 48 ore: la
+# raccolta si ferma da sola, non serve ricordarsi di disattivare il job.
+CAMPAGNA_INIZIO = datetime(2026, 8, 3, 0, 0, tzinfo=FUSO_ITALIA)  # lunedi' 03/08/2026, 00:00 ora italiana
+CAMPAGNA_DURATA_ORE = 48
+CAMPAGNA_FINE = CAMPAGNA_INIZIO + timedelta(hours=CAMPAGNA_DURATA_ORE)
+
 CRS_WGS84 = "EPSG:4326"
 CRS_UTM = "EPSG:32632"
+
+
+def dentro_finestra_campagna(adesso_utc):
+    return CAMPAGNA_INIZIO <= adesso_utc <= CAMPAGNA_FINE
 
 
 def intervallo_corrente(adesso_utc):
@@ -209,6 +235,16 @@ def estrai_segmenti_lonlat(tile_decodificato, x, y, zoom):
 
 def main(forza=False):
     ora_corrente = datetime.now(timezone.utc)
+
+    if not forza and not dentro_finestra_campagna(ora_corrente):
+        if ora_corrente < CAMPAGNA_INIZIO:
+            print(f"Campagna non ancora iniziata (parte {CAMPAGNA_INIZIO.isoformat()}, "
+                  f"adesso {ora_corrente.astimezone(FUSO_ITALIA).isoformat()}): nessuna chiamata TomTom, esco.")
+        else:
+            print(f"Campagna terminata (finita {CAMPAGNA_FINE.isoformat()}, "
+                  f"adesso {ora_corrente.astimezone(FUSO_ITALIA).isoformat()}): nessuna chiamata TomTom, esco.")
+        return
+
     intervallo_minuti = intervallo_corrente(ora_corrente)
 
     if not forza and intervallo_gia_coperto(ora_corrente, intervallo_minuti):

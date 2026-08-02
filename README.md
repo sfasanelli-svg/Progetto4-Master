@@ -36,7 +36,7 @@ per come sono state scelte.
 | Tile zoom 15 | 63 | 803 |
 | Cadenza | ogni 5 minuti, fissa | **adattiva**: 5 min in punta (7-10, 17-20 ora locale), 30 min fuori punta |
 | Finestra oraria | 7-22 ora italiana | tutto il giorno (00-23 UTC), cadenza adattiva copre le punte |
-| Durata raccolta | continuativa, indefinita | campagna a tempo, **48 ore** |
+| Durata raccolta | continuativa, indefinita | campagna a tempo, **48 ore, si ferma da sola** |
 | Output | un unico CSV in append | un file Parquet per giorno |
 | Chiave TomTom | condivisa con Progetto1/2 | **dedicata a questo progetto** |
 
@@ -68,6 +68,19 @@ sopra 100MB, l'automazione si romperebbe a metà campagna. Un file Parquet
 compresso per giorno (`traffico_provincia_AAAA-MM-GG.parquet`) resta
 piccolo e non cresce mai oltre un giorno di dati.
 
+## Finestra di campagna: lunedì-martedì, si ferma da sola
+
+`CAMPAGNA_INIZIO`/`CAMPAGNA_FINE` in `02_monitoraggio_traffico_tile.py`
+fissano la raccolta a **lunedì 03/08/2026 00:00 → mercoledì 05/08/2026
+00:00 ora italiana** (48 ore, lunedì+martedì — dati più verosimili di un
+giorno feriale "tipico" invece di un giorno scelto a caso, che potrebbe
+cadere di weekend). Fuori da questa finestra lo script esce subito senza
+fare alcuna chiamata TomTom: si può quindi attivare il trigger esterno
+anche con giorni di anticipo (nessun costo di quota finché non arriva
+lunedì) e lasciarlo attivo — la raccolta si interrompe da sola dopo 48
+ore, senza bisogno di disattivare nulla manualmente (a differenza di
+Progetto3).
+
 ## Setup da completare (fuori dal codice)
 
 1. Creare il repository GitHub vuoto
@@ -77,12 +90,8 @@ piccolo e non cresce mai oltre un giorno di dati.
    condividere la quota mensile con la raccolta ancora in corso sulle 50
    sezioni
 3. Creare un job su [cron-job.org](https://cron-job.org) che chiami l'API
-   GitHub (`workflow_dispatch`) su questo repository ogni 5 minuti (il
-   trigger resta a 5 minuti tutto il giorno: è lo script stesso a decidere,
-   in base all'ora locale italiana, se agire subito o aspettare il
-   prossimo bucket da 30 minuti)
-4. **Fermare il job su cron-job.org dopo 48 ore**: nessuna logica di
-   autospegnimento nello script, va fermata manualmente
+   GitHub (`workflow_dispatch`) su questo repository ogni 5 minuti — può
+   restare attivo H24 fin da subito, vedi sopra
 
 ## Contenuto
 
