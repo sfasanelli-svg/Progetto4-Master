@@ -63,7 +63,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add SCRIPT/traffico_provincia_*.parquet
+          # fuori dalla finestra di campagna lo script non scrive alcun
+          # parquet (corretto): un glob senza corrispondenze fa fallire
+          # "git add" con pathspec error, va assorbito con "|| true" invece
+          # di lasciar fallire lo step (visto succedere nel test manuale
+          # del 02/08, prima dell'inizio campagna)
+          git add SCRIPT/traffico_provincia_*.parquet || true
           if git diff --staged --quiet; then
             echo "Nessuna nuova riga da salvare"
           else
