@@ -1,33 +1,37 @@
 name: Monitoraggio traffico provincia di Milano (vector tiles)
 
-# Il TRIGGER esterno (cron-job.org) resta a "ogni 5 minuti" tutto il giorno,
-# senza restrizione oraria: e' gia' la granularita' piu' fine richiesta (le
-# fasce di punta usano 5 minuti). E' lo SCRIPT (02_monitoraggio_traffico_tile.py,
-# funzione intervallo_corrente) a decidere, in base all'ora locale italiana
-# corrente, se la cadenza applicabile ADESSO e' 5 minuti (fasce di punta,
-# 7-10 e 17-20 ora locale: il pattern da catturare e' concentrato li') o 30
-# minuti (resto della giornata) - scartando i tentativi che cadono nello
-# stesso bucket temporale di un'esecuzione gia' fatta.
+# Il TRIGGER esterno (cron-job.org) chiama "ogni 5 minuti", ma ristretto a
+# 7-22 ora italiana (stessa finestra di Progetto3): e' gia' la granularita'
+# piu' fine richiesta nelle fasce di punta. E' lo SCRIPT
+# (02_monitoraggio_traffico_tile.py, funzione intervallo_corrente) a
+# decidere, in base all'ora locale italiana corrente, se la cadenza
+# applicabile ADESSO e' 5 minuti (fasce di punta, 7-10 e 17-20 ora locale:
+# il pattern da catturare e' concentrato li') o 15 minuti (resto della
+# finestra 7-22) - scartando i tentativi che cadono nello stesso bucket
+# temporale di un'esecuzione gia' fatta. Le notti (22-7) sono escluse
+# deliberatamente, non solo per risparmiare quota: la metrica usata
+# ovunque nel progetto e' la congestione MASSIMA per segmento, e di notte
+# la circolazione e' scorrevole quasi ovunque, quindi quelle letture non
+# risultano quasi mai il massimo - il taglio non peggiora la qualita' del
+# dato. Lo stesso schedule nativo di GitHub sotto (05-20 UTC = 7-22 CEST)
+# e' solo un backup ridondante nel caso cron-job.org fallisca un ciclo.
 #
 # CAMPAGNA A TEMPO, non raccolta continua - ma SI FERMA DA SOLA: lo script
 # ha una finestra esplicita (CAMPAGNA_INIZIO/CAMPAGNA_FINE, lunedi' 03/08
 # 00:00 -> mercoledi' 05/08 00:00 ora italiana, 48h) e fuori da quella
 # finestra esce senza fare alcuna chiamata. Il trigger su cron-job.org puo'
-# quindi restare attivo H24 fin da subito (nessun costo prima di lunedi') e
-# non serve disattivarlo alla fine (nessun costo dopo mercoledi'), a
-# differenza di Progetto3. Con 803 tile e cadenza adattiva, 48h = ~173.448
-# chiamate (87% della quota mensile TomTom di 200.000, su una chiave
-# dedicata a questo solo progetto, non condivisa con Progetto3-Master-VectorTiles).
-# Cadenza fissa a 5 minuti su tutte le 48h costerebbe 462.528 chiamate
-# (231% della quota): non sostenibile, da qui la cadenza adattiva.
-#
-# Finestra oraria: nessuna restrizione (00-23 UTC, tutti i giorni della
-# campagna) - a differenza di Progetto3 (7-22 ora italiana), l'obiettivo e'
-# catturare l'intero ciclo giorno/notte su 2 giorni consecutivi, con le due
-# fasce di punta di ciascun giorno a piena risoluzione.
+# quindi restare attivo fin da subito (nessun costo prima di lunedi') e non
+# serve disattivarlo alla fine (nessun costo dopo mercoledi'), a differenza
+# di Progetto3. Con 803 tile, finestra 7-22 e cadenza adattiva (5 min
+# punta / 15 min fuori punta), 48h = ~173.448 chiamate (86,7% della quota
+# mensile TomTom di 200.000, su una chiave dedicata a questo solo
+# progetto, non condivisa con Progetto3-Master-VectorTiles - margine ~13%
+# lasciato apposta per eventuali retry su 429/504). Cadenza fissa a 5
+# minuti su tutte le 48h (anche solo nella finestra 7-22) costerebbe molto
+# di piu': non sostenibile, da qui la cadenza adattiva.
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/5 5-20 * * *"
   workflow_dispatch: {}
 
 concurrency:

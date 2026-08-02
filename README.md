@@ -34,8 +34,8 @@ per come sono state scelte.
 |---|---|---|
 | Sezioni | 50 | 968 (818 critiche + 150 controprova) |
 | Tile zoom 15 | 63 | 803 |
-| Cadenza | ogni 5 minuti, fissa | **adattiva**: 5 min in punta (7-10, 17-20 ora locale), 30 min fuori punta |
-| Finestra oraria | 7-22 ora italiana | tutto il giorno (00-23 UTC), cadenza adattiva copre le punte |
+| Cadenza | ogni 5 minuti, fissa | **adattiva**: 5 min in punta (7-10, 17-20 ora locale), 15 min fuori punta |
+| Finestra oraria | 7-22 ora italiana | **stessa finestra**, 7-22 ora italiana (le notti sono escluse: la congestione massima, la metrica usata ovunque, non è quasi mai raggiunta di notte) |
 | Durata raccolta | continuativa, indefinita | campagna a tempo, **48 ore, si ferma da sola** |
 | Output | un unico CSV in append | un file Parquet per giorno |
 | Chiave TomTom | condivisa con Progetto1/2 | **dedicata a questo progetto** |
@@ -55,9 +55,14 @@ nelle ore di punta, dove il pattern da individuare è concentrato — e la
 soglia di robustezza del progetto (≥5 letture per fidarsi di un segmento)
 esiste apposta per distinguere un pattern vero da un episodio isolato: per
 farlo bene servono **più picchi osservati indipendentemente**, non uno
-solo campionato fitto. La cadenza adattiva (5 min in punta, 30 min fuori
+solo campionato fitto. La cadenza adattiva (5 min in punta, 15 min fuori
 punta) dà due mattine e due sere indipendenti a piena risoluzione su 48h,
-per ~173.448 chiamate (87% della quota) — vedi il docstring di
+per ~173.448 chiamate (86,7% della quota, finestra 7-22 ora italiana come
+Progetto3 — le notti sono escluse deliberatamente, non solo per risparmiare
+quota). Il fuori-punta è stato infittito da 30 a 15 minuti rispetto a una
+prima versione (72% di quota) per più letture indipendenti = maggiore
+robustezza, lasciando comunque un margine ~13% per eventuali retry su
+429/504 — vedi il docstring di
 `02_monitoraggio_traffico_tile.py` per il dettaglio.
 
 ## Perché Parquet partizionato per giorno, non un CSV che cresce
@@ -90,8 +95,10 @@ Progetto3).
    condividere la quota mensile con la raccolta ancora in corso sulle 50
    sezioni
 3. Creare un job su [cron-job.org](https://cron-job.org) che chiami l'API
-   GitHub (`workflow_dispatch`) su questo repository ogni 5 minuti — può
-   restare attivo H24 fin da subito, vedi sopra
+   GitHub (`workflow_dispatch`) su questo repository ogni 5 minuti, **7-22
+   ora italiana** (stessa finestra di Progetto3, `*/5 7-22 * * *`: le notti
+   sono escluse deliberatamente, la congestione massima non le raggiunge
+   quasi mai) — può restare attivo fin da subito, vedi sopra
 
 ## Contenuto
 

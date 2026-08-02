@@ -17,15 +17,24 @@ tile invece di 50/63):
    ma sacrifica la risoluzione proprio dove serve di piu'. La cadenza
    adattiva (vedi FASCE_PUNTA_ORA_LOCALE, INTERVALLO_PUNTA_MINUTI/
    INTERVALLO_FUORI_PUNTA_MINUTI piu' sotto) costa ~173.448 chiamate su
-   48h (87% quota, su una chiave DEDICATA a questo progetto, non
+   48h (86,7% quota - alzata deliberatamente dal 72% di un primo giro con
+   fuori-punta a 30 minuti, per piu' letture indipendenti = piu' robustezza,
+   lasciando comunque un margine di sicurezza ~13% per eventuali retry su
+   429/504 - su una chiave DEDICATA a questo progetto, non
    condivisa con Progetto3-Master-VectorTiles): 5 minuti nelle 2 fasce di
    punta (mattino/sera, ora locale italiana), dove il pattern da
-   catturare e' concentrato, 30 minuti nel resto della giornata. Il
-   trigger esterno (cron-job.org) resta invariato a "ogni 5 minuti" - e'
-   gia' la granularita' piu' fine di cui c'e' bisogno; e' la logica DENTRO
-   lo script (funzione intervallo_corrente) a decidere, in base all'ora
-   locale italiana corrente, se lasciar passare il tentativo (punta) o
-   scartarlo fino al prossimo bucket da 30 minuti (fuori punta).
+   catturare e' concentrato, 30 minuti nel resto della finestra diurna.
+   Il trigger esterno (cron-job.org) e' ristretto a 7-22 ora italiana
+   (stessa finestra di Progetto3, "*/5 7-22 * * *"): le ore notturne sono
+   escluse deliberatamente, non solo per risparmiare quota - la metrica
+   usata ovunque nel progetto e' la CONGESTIONE MASSIMA per segmento, e di
+   notte la circolazione e' scorrevole quasi ovunque, quindi quelle letture
+   non risultano quasi mai il massimo di un segmento: il loro contributo
+   informativo e' trascurabile, il taglio non peggiora la qualita' del
+   dato. E' comunque la logica DENTRO lo script (funzione
+   intervallo_corrente) a decidere, in base all'ora locale italiana
+   corrente, se lasciar passare il tentativo (punta, 5 min) o scartarlo
+   fino al prossimo bucket da 30 minuti (fuori punta, ma dentro 7-22).
 
 2. FINESTRA DI CAMPAGNA ESPLICITA (CAMPAGNA_INIZIO/CAMPAGNA_FINE piu'
    sotto): parte lunedi' 03/08/2026 00:00 ora italiana, finisce da sola
@@ -96,16 +105,21 @@ BUFFER_SEZIONE_METRI = 50
 # proprio a distinguere un pattern vero da un episodio isolato: per farlo
 # bene servono PIU' picchi osservati, non un solo picco campionato fitto).
 # Compromesso: 5 minuti nelle 2 fasce di punta (mattino/sera, dove la
-# congestione da catturare e' concentrata), 30 minuti nel resto della
-# giornata. Per 48h: 173.448 chiamate (87% quota) - due mattine e due sere
-# indipendenti a piena risoluzione, invece di una sola finestra fissa.
+# congestione da catturare e' concentrata), 15 minuti nel resto della
+# finestra diurna (il trigger esterno e' comunque ristretto a 7-22, vedi
+# workflow yml: le ore notturne sono escluse, la congestione MASSIMA che
+# usiamo come metrica non e' quasi mai raggiunta di notte). Per 48h:
+# 173.448 chiamate (86,7% quota) - due mattine e due sere indipendenti a
+# piena risoluzione, piu' un fuori-punta piu' fitto (15 min, non 30) per
+# piu' letture indipendenti = maggiore robustezza, margine ~13% lasciato
+# apposta per eventuali retry.
 #
 # Le fasce sono in ora locale italiana (Europe/Rome, gestisce CEST/CET da
 # solo via zoneinfo): il traffico di punta segue gli orari di lavoro locali,
 # non l'orario UTC.
 FASCE_PUNTA_ORA_LOCALE = [(7, 10), (17, 20)]  # [ora_inizio, ora_fine) coppie
 INTERVALLO_PUNTA_MINUTI = 5
-INTERVALLO_FUORI_PUNTA_MINUTI = 30
+INTERVALLO_FUORI_PUNTA_MINUTI = 15
 FUSO_ITALIA = ZoneInfo("Europe/Rome")
 
 # FINESTRA DI CAMPAGNA: inizio fissato a lunedi' (dati piu' verosimili di un
