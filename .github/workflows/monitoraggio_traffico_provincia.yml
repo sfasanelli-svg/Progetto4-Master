@@ -1,0 +1,66 @@
+name: Monitoraggio traffico provincia di Milano (vector tiles)
+
+# Il TRIGGER esterno (cron-job.org) resta a "ogni 5 minuti" tutto il giorno,
+# senza restrizione oraria: e' gia' la granularita' piu' fine richiesta (le
+# fasce di punta usano 5 minuti). E' lo SCRIPT (02_monitoraggio_traffico_tile.py,
+# funzione intervallo_corrente) a decidere, in base all'ora locale italiana
+# corrente, se la cadenza applicabile ADESSO e' 5 minuti (fasce di punta,
+# 7-10 e 17-20 ora locale: il pattern da catturare e' concentrato li') o 30
+# minuti (resto della giornata) - scartando i tentativi che cadono nello
+# stesso bucket temporale di un'esecuzione gia' fatta.
+#
+# CAMPAGNA A TEMPO, non raccolta continua: pensato per girare 48 ore e poi
+# fermarsi (disabilitare il job su cron-job.org, o cancellare/mettere in
+# pausa questo workflow) - non e' una raccolta indefinita come Progetto3.
+# Con 803 tile e cadenza adattiva, 48h = ~173.448 chiamate (87% della quota
+# mensile TomTom di 200.000, su una chiave dedicata a questo solo progetto,
+# non condivisa con Progetto3-Master-VectorTiles). Cadenza fissa a 5 minuti
+# su tutte le 48h costerebbe 462.528 chiamate (231% della quota): non
+# sostenibile, da qui la cadenza adattiva.
+#
+# Finestra oraria: nessuna restrizione (00-23 UTC, tutti i giorni della
+# campagna) - a differenza di Progetto3 (7-22 ora italiana), l'obiettivo e'
+# catturare l'intero ciclo giorno/notte su 2 giorni consecutivi, con le due
+# fasce di punta di ciascun giorno a piena risoluzione.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: monitoraggio-traffico-provincia-milano
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  monitoraggio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installa dipendenze
+        run: pip install pandas requests geopandas shapely mapbox-vector-tile pyarrow
+
+      - name: Esegui monitoraggio traffico (803 tile)
+        env:
+          TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
+        run: python SCRIPT/02_monitoraggio_traffico_tile.py
+
+      - name: Commit e push del parquet del giorno
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add SCRIPT/traffico_provincia_*.parquet
+          if git diff --staged --quiet; then
+            echo "Nessuna nuova riga da salvare"
+          else
+            git commit -m "Aggiorna traffico provincia $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            git pull --rebase
+            git push
+          fi

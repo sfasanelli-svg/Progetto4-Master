@@ -1,0 +1,61 @@
+name: Scarico POI (una tantum, 968 sezioni target)
+
+# Esecuzione UNICA, manuale (workflow_dispatch, nessuno schedule) - non e'
+# una raccolta ricorrente come il traffico. Motivo per cui gira qui e non
+# in locale: i server pubblici Overpass (sia il mirror maps.mail.ru sia
+# quello ufficiale overpass-api.de) erano fortemente rate-limited durante i
+# test in locale (429 ripetuti, 20-30s+ a sezione, stima 5-6 ore per le
+# ~880 sezioni rimaste) - lanciarlo da un runner GitHub usa un IP diverso
+# (non gia' "bruciato" dai test di debug fatti in locale) e non dipende dal
+# PC restando acceso. Nessuna API key richiesta (Overpass e' pubblico).
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  scarico_poi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installa dipendenze
+        run: pip install pandas geopandas requests pyproj shapely
+
+      - name: Scarica cache grezza POI (script 03, resiliente ai fallimenti di singola sezione)
+        run: python SCRIPT/03_scarico_poi_overpass.py
+
+      - name: Commit intermedio della cache grezza (nel caso lo step successivo fallisca)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add SCRIPT/overpass_raw_poi/
+          if git diff --staged --quiet; then
+            echo "Nessuna nuova sezione da salvare"
+          else
+            git commit -m "Cache POI grezza (workflow una tantum) $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            git pull --rebase
+            git push
+          fi
+
+      - name: Aggrega POI per sezione e categoria (script 04)
+        run: python SCRIPT/04_poi_dati_target.py
+
+      - name: Commit del CSV aggregato finale
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add SCRIPT/poi_dati_target.csv
+          if git diff --staged --quiet; then
+            echo "Nessuna modifica al CSV aggregato"
+          else
+            git commit -m "Aggrega POI target (workflow una tantum) $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            git pull --rebase
+            git push
+          fi
