@@ -65,6 +65,19 @@ tile invece di 50/63):
    tile) e cadenza fino a 5 minuti, sarebbe troppo lento - si usa l'indice
    spaziale di geopandas invece del ciclo esplicito.
 
+5. DOWNLOAD DEI TILE IN PARALLELO (ThreadPoolExecutor), non sequenziale
+   con pausa. CORREZIONE POST-AVVIO CAMPAGNA (03/08, verificata sul primo
+   giorno reale): la versione sequenziale (0,3s di pausa + latenza reale)
+   impiegava ~0,73s/tile misurati, quindi ~10 minuti per l'intero giro di
+   803 tile - quasi il doppio dell'intervallo di 5 minuti tra un trigger e
+   l'altro nelle fasce di punta, con conseguente accumulo di esecuzioni in
+   coda ed esecuzioni che si contendevano il push git (~1 su 2 falliva o
+   veniva annullata durante la prima fascia di punta della campagna). Un
+   test diretto ha mostrato TomTom rispondere in ~0,13s a chiamata: non è
+   un limite del server (a differenza dei server pubblici Overpass usati
+   per i POI, qui la quota è dedicata alla singola chiave, non condivisa),
+   quindi ha senso scaricare più tile insieme invece di uno alla volta.
+
 API key TomTom:
   1. variabile d'ambiente TOMTOM_API_KEY (GitHub Actions, via secret);
   2. altrimenti SCRIPT/tomtom_key.txt (uso locale).
@@ -78,6 +91,7 @@ Output: traffico_provincia_AAAA-MM-GG.parquet (uno per giorno). Colonne:
 import math
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -94,7 +108,7 @@ IN_TILE = CARTELLA_SCRIPT / "tile_necessari.csv"
 KEY_PATH = CARTELLA_SCRIPT / "tomtom_key.txt"
 
 TOMTOM_TILE_URL = "https://api.tomtom.com/traffic/map/4/tile/flow/relative/{zoom}/{x}/{y}.pbf"
-PAUSA_TRA_RICHIESTE_S = 0.3
+MAX_WORKER_PARALLELI = 20  # richieste concorrenti verso TomTom (vedi punto 5 sopra)
 BUFFER_SEZIONE_METRI = 50
 
 # Cadenza ADATTIVA, non fissa: 803 tile a 5 minuti fissi per 48h costerebbero
@@ -281,17 +295,22 @@ def main(forza=False):
     ).to_crs(CRS_WGS84)
 
     tile_df = pd.read_csv(IN_TILE)
-    print(f"Tile da scaricare: {len(tile_df)}")
+    print(f"Tile da scaricare: {len(tile_df)} (fino a {MAX_WORKER_PARALLELI} in parallelo)")
 
-    tutti_i_segmenti = []
-    for i, row in tile_df.iterrows():
+    def scarica_tile_completo(row):
         x, y, zoom = int(row["tile_x"]), int(row["tile_y"]), int(row["zoom"])
         tile_decodificato = scarica_e_decodifica_tile(x, y, zoom, api_key)
-        segmenti = estrai_segmenti_lonlat(tile_decodificato, x, y, zoom)
-        tutti_i_segmenti.extend(segmenti)
-        if (i + 1) % 200 == 0 or i + 1 == len(tile_df):
-            print(f"  [{i+1}/{len(tile_df)}] tile scaricati, {len(tutti_i_segmenti)} segmenti finora")
-        time.sleep(PAUSA_TRA_RICHIESTE_S)
+        return estrai_segmenti_lonlat(tile_decodificato, x, y, zoom)
+
+    tutti_i_segmenti = []
+    completati = 0
+    with ThreadPoolExecutor(max_workers=MAX_WORKER_PARALLELI) as executor:
+        future_per_riga = {executor.submit(scarica_tile_completo, row): row for _, row in tile_df.iterrows()}
+        for future in as_completed(future_per_riga):
+            tutti_i_segmenti.extend(future.result())
+            completati += 1
+            if completati % 200 == 0 or completati == len(tile_df):
+                print(f"  [{completati}/{len(tile_df)}] tile scaricati, {len(tutti_i_segmenti)} segmenti finora")
 
     if not tutti_i_segmenti:
         print("Nessun segmento scaricato, esco senza scrivere output.")
