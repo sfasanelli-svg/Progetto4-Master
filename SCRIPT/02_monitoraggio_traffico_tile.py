@@ -203,9 +203,9 @@ def tile_px_to_lonlat(x_tile, y_tile, zoom, px, py, extent):
     return lon, lat
 
 
-def scarica_e_decodifica_tile(x, y, zoom, api_key, tentativi=3):
+def scarica_e_decodifica_tile(sessione, x, y, zoom, api_key, tentativi=3):
     for tentativo in range(1, tentativi + 1):
-        r = requests.get(TOMTOM_TILE_URL.format(zoom=zoom, x=x, y=y),
+        r = sessione.get(TOMTOM_TILE_URL.format(zoom=zoom, x=x, y=y),
                           params={"key": api_key}, timeout=20)
         if r.status_code == 200:
             if not r.content:
@@ -297,9 +297,22 @@ def main(forza=False):
     tile_df = pd.read_csv(IN_TILE)
     print(f"Tile da scaricare: {len(tile_df)} (fino a {MAX_WORKER_PARALLELI} in parallelo)")
 
+    # sessione condivisa con pool di connessioni dimensionato sul numero di
+    # worker: senza una sessione condivisa ogni requests.get() apre una
+    # nuova connessione (handshake TCP+TLS completo) invece di riusarne una
+    # gia' aperta - costo trascurabile in locale (rete veloce, verificato:
+    # 803 tile in 6-8s), ma su un runner GitHub Actions con latenza di rete
+    # piu' alta verso TomTom questo overhead per-richiesta si e' rivelato
+    # il vero collo di bottiglia (~300s misurati contro gli 8s locali, a
+    # parita' di codice/parallelismo - unica differenza plausibile).
+    sessione = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(pool_connections=MAX_WORKER_PARALLELI,
+                                             pool_maxsize=MAX_WORKER_PARALLELI)
+    sessione.mount("https://", adapter)
+
     def scarica_tile_completo(row):
         x, y, zoom = int(row["tile_x"]), int(row["tile_y"]), int(row["zoom"])
-        tile_decodificato = scarica_e_decodifica_tile(x, y, zoom, api_key)
+        tile_decodificato = scarica_e_decodifica_tile(sessione, x, y, zoom, api_key)
         return estrai_segmenti_lonlat(tile_decodificato, x, y, zoom)
 
     tutti_i_segmenti = []
