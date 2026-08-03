@@ -6,7 +6,7 @@ name: Monitoraggio traffico provincia di Milano (vector tiles)
 # (02_monitoraggio_traffico_tile.py, funzione intervallo_corrente) a
 # decidere, in base all'ora locale italiana corrente, se la cadenza
 # applicabile ADESSO e' 5 minuti (fasce di punta, 7-10 e 17-20 ora locale:
-# il pattern da catturare e' concentrato li') o 15 minuti (resto della
+# il pattern da catturare e' concentrato li') o 30 minuti (resto della
 # finestra 7-22) - scartando i tentativi che cadono nello stesso bucket
 # temporale di un'esecuzione gia' fatta. Le notti (22-7) sono escluse
 # deliberatamente, non solo per risparmiare quota: la metrica usata
@@ -30,12 +30,19 @@ name: Monitoraggio traffico provincia di Milano (vector tiles)
 # quindi restare attivo fin da subito (nessun costo prima di lunedi') e non
 # serve disattivarlo alla fine (nessun costo dopo mercoledi'), a differenza
 # di Progetto3. Con 803 tile, finestra 7-22 e cadenza adattiva (5 min
-# punta / 15 min fuori punta), 48h = ~173.448 chiamate (86,7% della quota
-# mensile TomTom di 200.000, su una chiave dedicata a questo solo
-# progetto, non condivisa con Progetto3-Master-VectorTiles - margine ~13%
-# lasciato apposta per eventuali retry su 429/504). Cadenza fissa a 5
-# minuti su tutte le 48h (anche solo nella finestra 7-22) costerebbe molto
-# di piu': non sostenibile, da qui la cadenza adattiva.
+# punta / 30 min fuori punta), proiezione totale campagna ~193.500 chiamate
+# (96,8% della quota mensile TomTom di 200.000, su una chiave dedicata a
+# questo solo progetto, non condivisa con Progetto3-Master-VectorTiles).
+# Il fuori-punta era stato alzato a 15 minuti la sera del 02/08 (piu'
+# letture = piu' robustezza) ma RIPORTATO a 30 il pomeriggio del 03/08:
+# un run troppo lento (10 minuti contro i 5 di intervallo, corretto in
+# SCRIPT/02_monitoraggio_traffico_tile.py punti 5-6 del docstring) ha
+# causato molte esecuzioni fallite durante la prima punta serale, e le
+# esecuzioni fallite consumano comunque la quota TomTom (fallisce solo il
+# commit successivo): a 15 minuti la proiezione avrebbe superato il 100%
+# della quota verso la fine della campagna. Cadenza fissa a 5 minuti su
+# tutte le 48h costerebbe molto di piu': non sostenibile, da qui la
+# cadenza adattiva.
 on:
   workflow_dispatch: {}
 

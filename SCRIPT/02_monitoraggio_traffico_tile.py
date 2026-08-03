@@ -8,33 +8,31 @@ Stessa logica di Progetto3-Master-VectorTiles/SCRIPT/02_monitoraggio_traffico_ti
 traffic_level), con tre differenze dovute alla scala (968 sezioni, 803
 tile invece di 50/63):
 
-1. CADENZA ADATTIVA (5 minuti in punta, 30 fuori punta), non fissa. Un
-   ciclo completo con 803 tile richiede ~4 minuti di sole pause
-   (PAUSA_TRA_RICHIESTE_S x 803), quindi 5 minuti nelle fasce di punta e'
-   fattibile. Cadenza fissa a 5 minuti su tutte le 48h costerebbe 803 x 12
-   x 48 = 462.528 chiamate (231% della quota mensile TomTom, 200.000):
-   non sostenibile. Cadenza fissa oraria rientrerebbe ampiamente in quota
-   ma sacrifica la risoluzione proprio dove serve di piu'. La cadenza
-   adattiva (vedi FASCE_PUNTA_ORA_LOCALE, INTERVALLO_PUNTA_MINUTI/
-   INTERVALLO_FUORI_PUNTA_MINUTI piu' sotto) costa ~173.448 chiamate su
-   48h (86,7% quota - alzata deliberatamente dal 72% di un primo giro con
-   fuori-punta a 30 minuti, per piu' letture indipendenti = piu' robustezza,
-   lasciando comunque un margine di sicurezza ~13% per eventuali retry su
-   429/504 - su una chiave DEDICATA a questo progetto, non
-   condivisa con Progetto3-Master-VectorTiles): 5 minuti nelle 2 fasce di
-   punta (mattino/sera, ora locale italiana), dove il pattern da
-   catturare e' concentrato, 30 minuti nel resto della finestra diurna.
-   Il trigger esterno (cron-job.org) e' ristretto a 7-22 ora italiana
-   (stessa finestra di Progetto3, "*/5 7-22 * * *"): le ore notturne sono
-   escluse deliberatamente, non solo per risparmiare quota - la metrica
-   usata ovunque nel progetto e' la CONGESTIONE MASSIMA per segmento, e di
-   notte la circolazione e' scorrevole quasi ovunque, quindi quelle letture
-   non risultano quasi mai il massimo di un segmento: il loro contributo
-   informativo e' trascurabile, il taglio non peggiora la qualita' del
-   dato. E' comunque la logica DENTRO lo script (funzione
-   intervallo_corrente) a decidere, in base all'ora locale italiana
-   corrente, se lasciar passare il tentativo (punta, 5 min) o scartarlo
-   fino al prossimo bucket da 30 minuti (fuori punta, ma dentro 7-22).
+1. CADENZA ADATTIVA (5 minuti in punta, 30 fuori punta), non fissa.
+   Cadenza fissa a 5 minuti su tutte le 48h costerebbe 803 x 12 x 30h
+   (finestra 7-22) = oltre 300.000 chiamate: non sostenibile. Cadenza
+   fissa piu' larga rientrerebbe ampiamente in quota ma sacrifica la
+   risoluzione proprio dove serve di piu'. La cadenza adattiva (vedi
+   FASCE_PUNTA_ORA_LOCALE, INTERVALLO_PUNTA_MINUTI/INTERVALLO_FUORI_PUNTA_MINUTI
+   piu' sotto): 5 minuti nelle 2 fasce di punta (mattino/sera, ora locale
+   italiana), dove il pattern da catturare e' concentrato, 30 minuti nel
+   resto della finestra diurna. Il trigger esterno (cron-job.org) e'
+   ristretto a 7-22 ora italiana (stessa finestra di Progetto3,
+   "*/5 7-22 * * *"): le ore notturne sono escluse deliberatamente, non
+   solo per risparmiare quota - la metrica usata ovunque nel progetto e'
+   la CONGESTIONE MASSIMA per segmento, e di notte la circolazione e'
+   scorrevole quasi ovunque, quindi quelle letture non risultano quasi mai
+   il massimo di un segmento: il loro contributo informativo e'
+   trascurabile, il taglio non peggiora la qualita' del dato. E' comunque
+   la logica DENTRO lo script (funzione intervallo_corrente) a decidere,
+   in base all'ora locale italiana corrente, se lasciar passare il
+   tentativo (punta, 5 min) o scartarlo fino al prossimo bucket da 30
+   minuti (fuori punta, ma dentro 7-22).
+
+   NOTA SUL VALORE DI INTERVALLO_FUORI_PUNTA_MINUTI: partito a 30, alzato
+   a 15 la sera del 02/08 (su richiesta esplicita, per piu' letture
+   indipendenti = piu' robustezza, target ~87% quota), poi RIPORTATO a 30
+   nel pomeriggio del 03/08 - vedi punto 6 per il perche'.
 
 2. FINESTRA DI CAMPAGNA ESPLICITA (CAMPAGNA_INIZIO/CAMPAGNA_FINE piu'
    sotto): parte lunedi' 03/08/2026 00:00 ora italiana, finisce da sola
@@ -77,6 +75,31 @@ tile invece di 50/63):
    un limite del server (a differenza dei server pubblici Overpass usati
    per i POI, qui la quota è dedicata alla singola chiave, non condivisa),
    quindi ha senso scaricare più tile insieme invece di uno alla volta.
+   Aggiunta anche una SESSIONE HTTP CONDIVISA (requests.Session, con pool
+   di connessioni dimensionato sul parallelismo): la sola parallelizzazione
+   non bastava sul runner GitHub Actions (un run ha comunque impiegato
+   311s), quasi certamente per l'overhead di un nuovo handshake TCP/TLS a
+   ogni singola richiesta invece di riusare una connessione gia' aperta -
+   overhead trascurabile su una rete a bassa latenza (trascurabile nei
+   test locali) ma significativo dal runner. Con entrambi i fix attivi:
+   da ~586s a 28-48s per esecuzione, verificato su piu' cicli consecutivi.
+
+6. RIDUZIONE DEL FUORI-PUNTA DA 15 A 30 MINUTI PER MARTEDI' (03/08
+   pomeriggio): conseguenza diretta dell'incidente del punto 5. Prima che
+   i fix venissero applicati, la fascia di punta serale di lunedi' ha
+   avuto ~1 esecuzione su 2 fallita o annullata (accumulo di esecuzioni in
+   coda per un run che durava piu' dell'intervallo tra un trigger e
+   l'altro) - le esecuzioni FALLITE consumano comunque la quota TomTom
+   (la chiamata va a buon fine, e' il commit/push successivo a fallire),
+   quindi lo spreco si somma al budget invece di sottrarsi: a meta'
+   pomeriggio di lunedi' erano gia' state consumate ~113.000 chiamate,
+   piu' dell'intera giornata "pulita" pianificata (86.724). Continuando a
+   15 minuti fuori-punta anche martedi' il totale della campagna avrebbe
+   superato la quota mensile (proiezione ~211.000, 105,6%) verso la fine
+   di martedi' - il momento peggiore per sforare, a campagna quasi
+   conclusa. Riportando il fuori-punta a 30 minuti (la punta resta 5
+   minuti su entrambi i giorni: nessuna perdita sui dati che contano di
+   piu') il totale proiettato scende a ~193.500 (96,8%), con margine.
 
 API key TomTom:
   1. variabile d'ambiente TOMTOM_API_KEY (GitHub Actions, via secret);
@@ -119,21 +142,23 @@ BUFFER_SEZIONE_METRI = 50
 # proprio a distinguere un pattern vero da un episodio isolato: per farlo
 # bene servono PIU' picchi osservati, non un solo picco campionato fitto).
 # Compromesso: 5 minuti nelle 2 fasce di punta (mattino/sera, dove la
-# congestione da catturare e' concentrata), 15 minuti nel resto della
+# congestione da catturare e' concentrata), 30 minuti nel resto della
 # finestra diurna (il trigger esterno e' comunque ristretto a 7-22, vedi
 # workflow yml: le ore notturne sono escluse, la congestione MASSIMA che
-# usiamo come metrica non e' quasi mai raggiunta di notte). Per 48h:
-# 173.448 chiamate (86,7% quota) - due mattine e due sere indipendenti a
-# piena risoluzione, piu' un fuori-punta piu' fitto (15 min, non 30) per
-# piu' letture indipendenti = maggiore robustezza, margine ~13% lasciato
-# apposta per eventuali retry.
+# usiamo come metrica non e' quasi mai raggiunta di notte). Due mattine e
+# due sere indipendenti a piena risoluzione su 48h. Il fuori-punta e'
+# stato per qualche ora a 15 minuti (piu' letture = piu' robustezza), poi
+# RIPORTATO a 30 il pomeriggio del 03/08 per compensare lo spreco di quota
+# causato da un run troppo lento (vedi docstring in cima al file, punti 5
+# e 6): a 15 minuti la proiezione totale campagna avrebbe superato la
+# quota mensile (~105,6%), a 30 minuti resta sotto con margine (~96,8%).
 #
 # Le fasce sono in ora locale italiana (Europe/Rome, gestisce CEST/CET da
 # solo via zoneinfo): il traffico di punta segue gli orari di lavoro locali,
 # non l'orario UTC.
 FASCE_PUNTA_ORA_LOCALE = [(7, 10), (17, 20)]  # [ora_inizio, ora_fine) coppie
 INTERVALLO_PUNTA_MINUTI = 5
-INTERVALLO_FUORI_PUNTA_MINUTI = 15
+INTERVALLO_FUORI_PUNTA_MINUTI = 30
 FUSO_ITALIA = ZoneInfo("Europe/Rome")
 
 # FINESTRA DI CAMPAGNA: inizio fissato a lunedi' (dati piu' verosimili di un
