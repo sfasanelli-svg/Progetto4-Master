@@ -13,8 +13,15 @@ name: Monitoraggio traffico provincia di Milano (vector tiles)
 # ovunque nel progetto e' la congestione MASSIMA per segmento, e di notte
 # la circolazione e' scorrevole quasi ovunque, quindi quelle letture non
 # risultano quasi mai il massimo - il taglio non peggiora la qualita' del
-# dato. Lo stesso schedule nativo di GitHub sotto (05-20 UTC = 7-22 CEST)
-# e' solo un backup ridondante nel caso cron-job.org fallisca un ciclo.
+# dato.
+#
+# NESSUNO schedule nativo di GitHub in aggiunta (rimosso il 03/08, durante
+# la campagna reale): con cron-job.org gia' attivo ogni 5 minuti, un
+# secondo trigger indipendente sulla stessa cadenza produceva esecuzioni
+# quasi in parallelo che si contendevano il push sullo stesso file
+# (osservato: ~1 esecuzione su 2 falliva allo step di commit/push durante
+# la finestra di punta 17-20 del primo giorno di raccolta). cron-job.org
+# da solo e' sufficiente ed e' gia' verificato affidabile.
 #
 # CAMPAGNA A TEMPO, non raccolta continua - ma SI FERMA DA SOLA: lo script
 # ha una finestra esplicita (CAMPAGNA_INIZIO/CAMPAGNA_FINE, lunedi' 03/08
@@ -30,8 +37,6 @@ name: Monitoraggio traffico provincia di Milano (vector tiles)
 # minuti su tutte le 48h (anche solo nella finestra 7-22) costerebbe molto
 # di piu': non sostenibile, da qui la cadenza adattiva.
 on:
-  schedule:
-    - cron: "*/5 5-20 * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -71,8 +76,21 @@ jobs:
           git add SCRIPT/traffico_provincia_*.parquet || true
           if git diff --staged --quiet; then
             echo "Nessuna nuova riga da salvare"
-          else
-            git commit -m "Aggiorna traffico provincia $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-            git pull --rebase
-            git push
+            exit 0
           fi
+          git commit -m "Aggiorna traffico provincia $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          # retry su push: anche con un solo trigger attivo, un run del
+          # workflow POI (una tantum) o un run precedente ancora in coda
+          # possono pushare nel frattempo - "git pull --rebase" seguito da
+          # "git push" puo' fallire per una race persa, non e' un errore
+          # permanente, si ritenta invece di far fallire tutto il job
+          for tentativo in 1 2 3 4 5; do
+            if git pull --rebase && git push; then
+              echo "Push riuscito al tentativo $tentativo"
+              exit 0
+            fi
+            echo "Tentativo $tentativo fallito, riprovo tra $((tentativo * 5))s..."
+            sleep $((tentativo * 5))
+          done
+          echo "Push fallito dopo 5 tentativi"
+          exit 1
