@@ -62,6 +62,10 @@ IN_GEOJSON = CARTELLA_SCRIPT / "sezioni_target_validazione.geojson"
 IN_CANDIDATI_SITING = CARTELLA_SCRIPT / "candidati_siting_provincia.csv"
 IN_COLONNINE_RIMOSSE = CARTELLA_PROGETTO_PRINCIPALE / "colonnine_rimosse_controprova.csv"
 
+FILTRA_A_SOLE_SEZIONI_CON_COLONNINA_DENTRO = True  # se True, SEZIONI_ESEMPIO viene ignorata: si
+# generano automaticamente TUTTE le sezioni di controprova con almeno 1 colonnina reale dentro il
+# confine esatto (le uniche per cui questo grafico ha senso - vedi nota sopra, 20/74). Mettere a
+# False e valorizzare SEZIONI_ESEMPIO per generare solo un sottoinsieme scelto a mano.
 SEZIONI_ESEMPIO = [152130000005, 152210000004, 150420000001]  # Solaro, Trezzo sull'Adda, Calvignasco
 
 INK = "#2b2b2b"
@@ -193,13 +197,40 @@ def grafico_validazione(sez, comune, poligono, candidati_scelti, colonnine_sez):
     print(f"  Salvato: {out.name} (distanza mediana {mediana_d:.0f}m)")
 
 
+def sezioni_con_colonnina_dentro(sezioni, candidati, colonnine):
+    """Tutte le sezioni di controprova con almeno un candidato di siting (script 06) E almeno
+    una colonnina reale dentro il confine esatto (non solo nel buffer di 500m) - le uniche per
+    cui il confronto 1:1 di questo grafico e' applicabile."""
+    controprova_con_candidati = candidati.loc[candidati["gruppo"] == "controprova", "SEZ2011"].unique()
+    trovate = []
+    for sez in sorted(controprova_con_candidati):
+        riga_sez = sezioni[sezioni["SEZ2011"] == sez]
+        if riga_sez.empty:
+            continue
+        poligono = riga_sez.iloc[0].geometry
+        sub = colonnine[colonnine["SEZ2011"] == sez][["colonnina_lat", "colonnina_lon"]].round(5).drop_duplicates()
+        if sub.empty:
+            continue
+        dentro = sub.apply(lambda r: poligono.contains(Point(r["colonnina_lon"], r["colonnina_lat"])), axis=1)
+        if dentro.sum() >= 1:
+            trovate.append(int(sez))
+    return trovate
+
+
 def main():
     sezioni = gpd.read_file(IN_GEOJSON)
     sezioni["SEZ2011"] = sezioni["SEZ2011"].astype(int)
     candidati = pd.read_csv(IN_CANDIDATI_SITING)
     colonnine = pd.read_csv(IN_COLONNINE_RIMOSSE)
 
-    for sez in SEZIONI_ESEMPIO:
+    if FILTRA_A_SOLE_SEZIONI_CON_COLONNINA_DENTRO:
+        sezioni_da_fare = sezioni_con_colonnina_dentro(sezioni, candidati, colonnine)
+        print(f"Sezioni di controprova con almeno 1 colonnina reale dentro il confine esatto: "
+              f"{len(sezioni_da_fare)}\n")
+    else:
+        sezioni_da_fare = SEZIONI_ESEMPIO
+
+    for sez in sezioni_da_fare:
         riga_sez = sezioni[sezioni["SEZ2011"] == sez]
         if riga_sez.empty:
             print(f"SEZ2011={sez} non trovata nel geojson target, salto.")
