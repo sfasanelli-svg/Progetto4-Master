@@ -172,14 +172,27 @@ def grafico_traffico(sez, comune, poligono, traffico_sez):
                       markersize=sizes, edgecolor="white", linewidth=0.6, zorder=4)
 
     n_top = len(top_n)
+    # offset adattivo sia in orizzontale sia in verticale (non sempre "in alto a destra"): le
+    # etichette si irradiano verso il quadrante OPPOSTO a dove cade il cluster dei segmenti piu'
+    # critici, cosi' restano lontane sia dalla colorbar (bordo destro) sia dal titolo (bordo
+    # alto) - bug osservato su San Vittore Olona, dove i segmenti piu' critici sono vicini
+    # all'angolo in alto a destra del poligono.
+    centro_x = sum(ax.get_xlim()) / 2
+    centro_y = sum(ax.get_ylim()) / 2
     for i in range(n_top):
         punto = top_n_3857.geometry.iloc[i]
         raggio = 600 - i * 110
         ax.scatter([punto.x], [punto.y], marker="o", facecolor="none", edgecolor=ACCENT,
                    s=raggio, linewidth=3 - i * 0.4, zorder=5)
-        dy = 55 + (n_top - 1 - i) * 48
+        dy_base = 55 + (n_top - 1 - i) * 48
+        a_sinistra = punto.x >= centro_x
+        dx = -65 if a_sinistra else 65
+        ha = "right" if a_sinistra else "left"
+        verso_basso = punto.y >= centro_y
+        dy = -dy_base if verso_basso else dy_base
+        va = "top" if verso_basso else "bottom"
         ax.annotate(f"{ORDINALI[i]} segmento più critico", (punto.x, punto.y),
-                    xytext=(65, dy), textcoords="offset points", ha="left", va="bottom",
+                    xytext=(dx, dy), textcoords="offset points", ha=ha, va=va,
                     fontsize=11.5, color=ACCENT, fontweight="bold",
                     path_effects=[pe.withStroke(linewidth=3, foreground="white")],
                     arrowprops=dict(arrowstyle="-", color=ACCENT, linewidth=1.3,

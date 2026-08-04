@@ -1,26 +1,35 @@
 # -*- coding: utf-8 -*-
 """Genera metodologia_provincia_milano.pdf a partire dal testo di questo
-script (nessun dato letto a runtime: i numeri sono stati verificati a mano
-sui risultati reali di 05/06/07 e incollati qui). Rigenerare questo file
+script (nessun dato letto a runtime per il testo: i numeri sono stati
+verificati a mano sui risultati reali e incollati qui; le figure invece
+sono lette dal disco a ogni rigenerazione). Rigenerare questo file
 manualmente se cambia la metodologia o si aggiornano i risultati.
 
-Versione 2 (04/08/2026): aggiunge i risultati reali della raccolta
-traffico/POI, dello script 06 (dove installarle) e dello script 07
-(validazione a controprova) alla versione 1 (02/08/2026), che conteneva solo
-la metodologia senza numeri di questa fase. Aggiorna anche §3.1 con la
-cadenza fuori-punta finale (30 minuti, non più i 15 della bozza iniziale) e
-aggiunge la cronaca dell'esaurimento anticipato della quota TomTom (§3.4).
+Versione 3 (04/08/2026 sera, definitiva per la condivisione di gruppo):
+aggiunge alla v2 (stessa giornata, risultati reali di 05/06/07) le figure
+di 09_grafici_presentazione.py e 10_grafico_validazione_controprova.py
+(4 esempi in §3-§6, 1 in §7.4), il nuovo §7.4 "Validazione visiva: solo
+dentro il confine esatto", i tre limiti emersi dal check dati approfondito
+(§8: punteggio di traffico non affidabile come confidenza assoluta, Milano
+sotto media di copertura, confronto visivo applicabile solo a 20/74
+sezioni), e il nuovo §9 con il rimando alle cartelle grafici/ complete.
 """
 
+from pathlib import Path
+
+from PIL import Image as PILImage
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import (
-    ListFlowable, ListItem, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    Image, ListFlowable, ListItem, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
 
 OUT_PDF = r"C:\Users\fasanelli michele\OneDrive\Desktop\Progetto4-Master-ProvinciaMilano\metodologia_provincia_milano.pdf"
+CARTELLA_PROGETTO = Path(r"C:\Users\fasanelli michele\OneDrive\Desktop\Progetto4-Master-ProvinciaMilano")
+CARTELLA_GRAFICI = CARTELLA_PROGETTO / "grafici"
+CARTELLA_GRAFICI_VALIDAZIONE = CARTELLA_PROGETTO / "grafici di validazione"
 
 styles = getSampleStyleSheet()
 title_style = ParagraphStyle("TitoloDoc", parent=styles["Title"], fontSize=18, leading=22, spaceAfter=6)
@@ -35,10 +44,26 @@ table_header_style = ParagraphStyle("TabHeader", parent=styles["Normal"], fontSi
 table_cell_style = ParagraphStyle("TabCell", parent=styles["Normal"], fontSize=9.2, leading=12.5)
 footer_style = ParagraphStyle("Footer", parent=styles["Normal"], fontSize=8, leading=11,
                                textColor=colors.HexColor("#666666"), spaceBefore=16)
+caption_style = ParagraphStyle("Didascalia", parent=styles["Normal"], fontSize=8.3, leading=11.5,
+                                textColor=colors.HexColor("#666666"), spaceAfter=12, alignment=1)
 
 
 def p(text):
     return Paragraph(text, body_style)
+
+
+def immagine(path, larghezza_cm, didascalia):
+    """Figura con larghezza fissa e altezza proporzionale (letta dal file al
+    momento della generazione, non hardcoded), più didascalia sotto."""
+    with PILImage.open(path) as im:
+        w_px, h_px = im.size
+    larghezza = larghezza_cm * cm
+    altezza = larghezza * h_px / w_px
+    return [
+        Image(str(path), width=larghezza, height=altezza),
+        Spacer(1, 4),
+        Paragraph(didascalia, caption_style),
+    ]
 
 
 def bullets(items):
@@ -188,6 +213,12 @@ story.append(p(
     "Rispetto al disegno originale (2 mattine + 2 sere indipendenti, per la soglia di robustezza ≥5 "
     "letture), il dataset finale copre 2 mattine + circa 1,5 sere: una copertura ridotta ma ancora "
     "utilizzabile — vedi §8 per l'impatto sui risultati."))
+story.append(Spacer(1, 8))
+story.extend(immagine(
+    CARTELLA_GRAFICI / "traffico_san_vittore_olona_152010000007.png", 13.0,
+    "Fig. 1 — Congestione massima per segmento robusto (≥5 letture), San Vittore Olona "
+    "(SEZ2011 152010000007), una delle sezioni critiche con dati di traffico più ricchi. I 3 "
+    "segmenti più critici sono evidenziati ed etichettati."))
 
 # 4. Raccolta POI
 story.append(Paragraph("4. Raccolta dati sui punti di interesse (POI)", h1_style))
@@ -230,6 +261,11 @@ story.append(p(
     "<b>3.501 POI totali</b> assegnati (17 categorie), <b>709 sezioni</b> con almeno un POI e "
     "<b>259 sezioni</b> a zero POI (mediana 2 POI per sezione) — normale per sezioni periferiche/"
     "residenziali pure, non un errore di raccolta."))
+story.append(Spacer(1, 8))
+story.extend(immagine(
+    CARTELLA_GRAFICI / "poi_san_vittore_olona_152010000007.png", 13.0,
+    "Fig. 2 — POI candidati (livello 1-3) dentro il confine esatto della stessa sezione, colorati "
+    "per categoria."))
 
 # 5. Quante colonnine servono
 story.append(Paragraph("5. Quante colonnine servono", h1_style))
@@ -250,6 +286,11 @@ story.append(tabella(
 ))
 story.append(Spacer(1, 6))
 story.append(p("Nessuna delle 818 sezioni critiche richiede più di 3 colonnine per scendere sotto soglia."))
+story.append(Spacer(1, 8))
+story.extend(immagine(
+    CARTELLA_GRAFICI / "gap_score_san_vittore_olona_152010000007.png", 10.5,
+    "Fig. 3 — Impatto di 0-3 nuove colonnine sul GAP score per San Vittore Olona: scende sotto "
+    "soglia (0,429) con 3 nuove colonnine, da 0,5631 a 0,3545."))
 
 # 6. Dove installarle
 story.append(Paragraph("6. Dove installarle", h1_style))
@@ -293,6 +334,26 @@ story.append(p(
     "abbassare la robustezza traffico a ≥3 letture recupera solo un margine molto piccolo (rispettivamente "
     "+5 e +23 sezioni su 968): il limite di copertura è strutturale, legato soprattutto alla disponibilità "
     "di POI idonei, non un problema di parametri regolabili — vedi §8."))
+story.append(p(
+    "Guardando quali categorie vincono più spesso (rank 1) tra i 345 candidati: il parcheggio domina "
+    "(232/345, 67%), seguito da ristorazione (77, 22%). Per livello di confidenza il quadro è meno "
+    "rassicurante: il livello 1 (“parcheggio quasi certo” — distributore/supermercato/mall) vince "
+    "solo <b>18/345 volte (5%)</b>, il livello 2 domina con 247/345 (72%) e il livello 3 (“plausibile"
+    "”) vince comunque 80/345 volte (23%) — il modello si affida spesso a candidati di confidenza "
+    "intermedia o bassa per semplice assenza di alternative migliori nella sezione, non perché siano "
+    "oggettivamente i più affidabili."))
+story.append(p(
+    "Un'osservazione dal dettaglio geografico: <b>Milano città ha una copertura sotto la media "
+    "provinciale</b> — 130 sezioni target nel comune, solo 25 con un candidato (19,2%, contro il 35,6% "
+    "medio). L'ipotesi più plausibile non è una carenza di POI (Milano è densissima), ma la granularità "
+    "delle sezioni di censimento: nella griglia urbana fitta della città le sezioni sono molto più piccole "
+    "che altrove, quindi anche con molti POI nei dintorni pochi cadono esattamente dentro il confine "
+    "stretto — lo stesso vale per i segmenti di traffico robusti entro 300m."))
+story.append(Spacer(1, 8))
+story.extend(immagine(
+    CARTELLA_GRAFICI / "siting_san_vittore_olona_152010000007.png", 13.0,
+    "Fig. 4 — Punti di siting raccomandati (rank 1-3) per San Vittore Olona, con il contesto che li "
+    "genera: segmenti di traffico robusti e POI candidati non scelti, in grigio/rosa chiaro sullo sfondo."))
 
 # 7. Validazione a controprova
 story.append(Paragraph("7. Validazione a controprova", h1_style))
@@ -352,6 +413,40 @@ story.append(p(
     "traffico: la distanza tipica di 250-300m è compatibile con l'incertezza intrinseca del criterio "
     "(un incrocio o un isolato di differenza), non con un errore di sistema — anche i primi 3 candidati "
     "insieme, non solo il primo, mostrano lo stesso ordine di grandezza."))
+story.append(p(
+    "Un approfondimento ha verificato se il punteggio di traffico (quanto il modello è “sicuro” della sua "
+    "scelta) predice davvero l'accuratezza posizionale: la correlazione tra <i>punteggio_traffico</i> e la "
+    "distanza reale dell'errore, sulle 74 sezioni, è debolissima (<b>r = -0,12</b>). Confermato con un "
+    "numero concreto: in <b>24 sezioni su 74 (32%)</b> il candidato di rank 1 (il punteggio di traffico più "
+    "alto) NON è il più vicino alla colonnina reale tra i primi 3 — un altro candidato, con punteggio più "
+    "basso, sarebbe stato geograficamente più corretto. Il punteggio di traffico va quindi letto come un "
+    "criterio di ranking tra candidati della stessa sezione, non come una misura di confidenza assoluta "
+    "sulla correttezza del punto — vedi §8."))
+
+story.append(Paragraph("7.4 Validazione visiva: solo dentro il confine esatto", h2_style))
+story.append(p(
+    "Il dataset delle colonnine rimosse nella controprova assegna una colonnina reale a una sezione se "
+    "cade entro 500m dal suo confine (stessa logica di <i>offerta_colonnine_500m</i>, usata ovunque nel "
+    "GAP score), non se cade dentro il poligono stesso. Per un confronto visivo punto-per-punto, più diretto "
+    "di una tabella aggregata, ha senso restringersi alle sole colonnine reali che cadono davvero dentro il "
+    "confine esatto — “se ne spengo N dentro la sezione, ne accendo N con il modello”."))
+story.append(p(
+    "Verificato: solo <b>20 sezioni di controprova su 74 (27%)</b> hanno almeno una colonnina reale dentro "
+    "il proprio confine esatto (il massimo osservato è 2, anche per la sezione con più colonnine in "
+    "assoluto nel buffer, Carugate, che ne ha 19 nel raggio di 500m ma solo 2 dentro il confine). Per "
+    "queste 20 sezioni è stata generata una mappa dedicata (colonnine reali in rosso vs punti raccomandati "
+    "in verde, con la distanza alla colonnina più vicina in etichetta): <b>mediana delle 20 distanze "
+    "mediane per sezione 186m</b>, media 204m, dal minimo di Carpiano (33m) al massimo di Trezzo sull'Adda "
+    "(464m — sezione molto allungata, dove le uniche colonnine dentro il confine sono lontane dai punti "
+    "raccomandati). Questi numeri non sono direttamente confrontabili con la tabella di §7.3 (che usa il "
+    "pool più ampio del buffer 500m su tutte le 74 sezioni): vanno letti come un secondo controllo "
+    "illustrativo, coerente nell'ordine di grandezza col risultato aggregato, non come sostituto."))
+story.append(Spacer(1, 8))
+story.extend(immagine(
+    CARTELLA_GRAFICI_VALIDAZIONE / "controprova_carpiano_150500000002.png", 12.5,
+    "Fig. 5 — Carpiano (SEZ2011 150500000002), il caso con il match più preciso tra le 20 sezioni "
+    "validabili: colonnine reali dentro il confine esatto (rosso) vs punti raccomandati dal modello "
+    "(verde), mai avendo visto le colonnine reali."))
 
 # 8. Limiti e uso corretto
 story.append(Paragraph("8. Limiti e uso corretto", h1_style))
@@ -382,7 +477,36 @@ story.append(bullets([
     "Il siting (§6) raccomanda i punti migliori TRA i candidati disponibili in una sezione, non garantisce "
     "che ogni sezione ne abbia: dipende dalla presenza di POI idonei e di traffico robusto abbastanza "
     "vicino.",
+    "<b>Il punteggio di traffico non è una misura di confidenza assoluta</b> (§7.3): correlazione debole "
+    "con l'errore posizionale reale (r=-0,12) e, nel 32% delle sezioni di controprova, il rank 1 non è il "
+    "candidato più vicino alla colonnina reale tra i primi 3. Va usato per confrontare candidati "
+    "all'interno della stessa sezione, non per giudicare quanto ci si può fidare di una raccomandazione.",
+    "<b>Milano città ha una copertura di siting sotto la media</b> (19,2% contro il 35,6% provinciale, §6), "
+    "verosimilmente per la granularità fine delle sezioni di censimento urbane, non per carenza di POI.",
+    "<b>Il confronto visivo “dentro il confine esatto” (§7.4) è applicabile solo a 20 sezioni di controprova "
+    "su 74</b>: la maggioranza delle colonnine reali usate nella validazione aggregata di §7.3 si trova "
+    "fuori dal poligono della sezione, nel buffer di 500m — un limite del dataset di origine, non del "
+    "modello di siting.",
 ]))
+
+# 9. Materiale grafico supplementare
+story.append(Paragraph("9. Materiale grafico supplementare", h1_style))
+story.append(p(
+    "Le figure di questo documento sono un campione ridotto, scelto per illustrare la metodologia. Il set "
+    "completo — generato con gli script <i>SCRIPT/09_grafici_presentazione.py</i> e "
+    "<i>SCRIPT/10_grafico_validazione_controprova.py</i> del repository, entrambi rieseguibili su dati "
+    "aggiornati — comprende:"))
+story.append(bullets([
+    "<b>8 grafici</b> (traffico, POI, siting, impatto sul GAP score) per le due sezioni critiche di "
+    "esempio, San Vittore Olona e Mediglia — cartella <i>grafici/</i>.",
+    "<b>20 grafici di validazione a controprova</b> (§7.4), una per ciascuna delle sezioni con almeno una "
+    "colonnina reale dentro il confine esatto — cartella <i>“grafici di validazione/”</i>.",
+]))
+story.append(p(
+    "Entrambe le cartelle sono nel repository "
+    "<i>github.com/sfasanelli-svg/Progetto4-Master</i>, insieme a tutti i CSV di output citati in "
+    "questo documento (<i>quante_colonnine_critiche.csv</i>, <i>candidati_siting_provincia.csv</i>, "
+    "<i>validazione_controprova.csv</i>)."))
 
 story.append(Paragraph(
     "Progetto EV Charge Desert — documento generato a supporto della documentazione di gruppo.",
