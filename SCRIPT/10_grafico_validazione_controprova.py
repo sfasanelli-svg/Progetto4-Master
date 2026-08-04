@@ -16,9 +16,19 @@ ma qui il confronto e' tra:
     accendere" se il modello avesse dovuto scoprire da zero questa sezione
 
 Una linea tratteggiata collega ogni punto raccomandato alla colonnina reale
-piu' vicina, con la distanza in etichetta: e' la stessa metrica calcolata da
-07_validazione_controprova.py, qui resa visivamente immediata invece che in
-una tabella.
+piu' vicina, con la distanza in etichetta - stesso principio di
+07_validazione_controprova.py, ma NON lo stesso numero: qui il confronto e'
+ristretto alle sole colonnine reali dentro il confine ESATTO della sezione
+(niente buffer di 500m), un pool piu' piccolo e piu' severo di quello usato
+per la metrica ufficiale in validazione_controprova.csv. Le distanze di
+questo grafico vanno lette come un confronto "1 colonnina spenta, 1 punto
+acceso" illustrativo, non come sostituto della metrica aggregata ufficiale.
+
+Vincolo N=N: se la sezione ha N colonnine reali dentro il confine esatto, si
+mostrano i primi N candidati di siting (non fissi a 3) - "se ne spengo N, ne
+accendo N". La maggior parte delle sezioni di controprova (54/74, 73%) non
+ha NESSUNA colonnina dentro il proprio confine esatto (tutte nel buffer
+500m): per quelle sezioni questo grafico non è applicabile e viene saltato.
 
 Le colonnine reali sono deduplicate per coordinata (round a 5 decimali): il
 dataset colonnine_rimosse_controprova.csv ha una riga per CONNETTORE
@@ -39,6 +49,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pyproj import Transformer
+from shapely.geometry import Point
 
 CARTELLA_SCRIPT = Path(__file__).resolve().parent
 CARTELLA_PROGETTO = CARTELLA_SCRIPT.parent
@@ -89,6 +100,25 @@ def grafico_validazione(sez, comune, poligono, candidati_scelti, colonnine_sez):
     reali = colonnine_sez[["colonnina_lat", "colonnina_lon"]].round(5).drop_duplicates()
     reali = reali.rename(columns={"colonnina_lat": "lat", "colonnina_lon": "lon"})
 
+    # SOLO le colonnine reali DENTRO il confine esatto della sezione: il dataset di
+    # partenza le assegna per buffer di 500m dal poligono (§7.1 della metodologia), non
+    # per appartenenza al poligono stesso - la maggior parte delle colonnine "rimosse"
+    # nella controprova si trova infatti fuori dal confine esatto (verificato: 54/74
+    # sezioni di controprova non ne hanno NESSUNA dentro il confine esatto). Qui si
+    # mostra solo il sottoinsieme "dentro", per un confronto 1:1 leggibile: se la
+    # sezione ha N colonnine reali dentro il confine, si mostrano i primi N candidati
+    # di siting (non fissi a 3) - "se ne spengo N, ne accendo N".
+    dentro = reali.apply(lambda r: poligono.contains(Point(r["lon"], r["lat"])), axis=1)
+    reali = reali[dentro].reset_index(drop=True)
+    n_reali = len(reali)
+    if n_reali == 0:
+        print(f"  SEZ2011={sez}: nessuna colonnina reale dentro il confine esatto, salto.")
+        return
+    candidati_scelti = candidati_scelti.head(n_reali)
+    if len(candidati_scelti) < n_reali:
+        print(f"  SEZ2011={sez}: attenzione, solo {len(candidati_scelti)} candidati di siting "
+              f"disponibili contro {n_reali} colonnine reali dentro il confine (mostro quelli disponibili).")
+
     rx, ry = _to_utm(reali["lon"].to_numpy(), reali["lat"].to_numpy())
     reali_utm = np.column_stack([rx, ry])
 
@@ -103,7 +133,8 @@ def grafico_validazione(sez, comune, poligono, candidati_scelti, colonnine_sez):
     imposta_estensione(ax, poligono_3857, gdf_reali, gdf_scelti)
 
     gdf_reali.plot(ax=ax, color=ROSSO, marker="X", markersize=170, edgecolor="white",
-                    linewidth=1.1, zorder=4, label=f"colonnina reale attiva, spenta nella simulazione ({len(reali)})")
+                    linewidth=1.1, zorder=4,
+                    label=f"colonnina reale dentro il confine, spenta nella simulazione ({n_reali})")
 
     # linea tratteggiata verso la colonnina reale piu' vicina + etichetta di distanza (stessa
     # metrica di 07_validazione_controprova.py: distanza minima punto-per-punto in UTM)
@@ -150,8 +181,9 @@ def grafico_validazione(sez, comune, poligono, candidati_scelti, colonnine_sez):
                             for px, py in zip(*_to_utm(candidati_scelti["lon"].to_numpy(),
                                                         candidati_scelti["lat"].to_numpy()))])
     fig.text(0.01, 0.014,
-              f"SEZ2011 {sez} · {len(reali)} colonnine reali (stalli fisici, connettori multipli "
-              f"deduplicati) · distanza mediana candidato→colonnina più vicina: {mediana_d:.0f}m",
+              f"SEZ2011 {sez} · {n_reali} colonnine reali dentro il confine esatto (stalli fisici, "
+              f"connettori multipli deduplicati) · {len(candidati_scelti)} candidati mostrati (1 per "
+              f"colonnina reale) · distanza mediana candidato→colonnina più vicina: {mediana_d:.0f}m",
               fontsize=9.5, color=INK, path_effects=[pe.withStroke(linewidth=3, foreground="white")])
 
     fig.subplots_adjust(left=0.01, right=0.99, top=0.95, bottom=0.055)
